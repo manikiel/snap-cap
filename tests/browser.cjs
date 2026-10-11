@@ -164,13 +164,14 @@ async function suite(name, browserType) {
     });
     page.on("pageerror", (e) => failures.push(e.message));
     await page.addInitScript(() => {
-      if (navigator.mediaDevices)
-        Object.defineProperty(navigator.mediaDevices, "getUserMedia", {
-          configurable: true,
-          value: async () => {
+      Object.defineProperty(navigator, "mediaDevices", {
+        configurable: true,
+        value: {
+          getUserMedia: async () => {
             throw new DOMException("Camera denied for test", "NotAllowedError");
           },
-        });
+        },
+      });
     });
     await page.goto(url);
     await onboard(page);
@@ -435,13 +436,27 @@ async function suite(name, browserType) {
     await page
       .getByRole("button", { name: "Record voice message", exact: true })
       .click();
-    await page.waitForFunction(() => !!window.releaseLateMic);
-    await page.getByRole("button", { name: "Back to chats" }).click();
-    await page.evaluate(() => window.releaseLateMic());
-    await page.waitForFunction(() => window.lateMicStops === 1);
-    console.log(
-      name + ": microphone granted after leaving chat is stopped safely",
-    );
+    if (await page.evaluate(() => !!window.MediaRecorder)) {
+      await page.waitForFunction(() => !!window.releaseLateMic);
+      await page.getByRole("button", { name: "Back to chats" }).click();
+      await page.evaluate(() => window.releaseLateMic());
+      await page.waitForFunction(() => window.lateMicStops === 1);
+      console.log(
+        name + ": microphone granted after leaving chat is stopped safely",
+      );
+    } else {
+      await page
+        .getByText("Voice recording is unavailable in this browser.", {
+          exact: true,
+        })
+        .waitFor();
+      assert.equal(await page.evaluate(() => !!window.releaseLateMic), false);
+      await page.getByRole("button", { name: "Back to chats" }).click();
+      console.log(
+        name +
+          ": unsupported microphone recording is reported without requesting permission",
+      );
+    }
     await page.evaluate(async () => {
       await navigator.serviceWorker.ready;
     });

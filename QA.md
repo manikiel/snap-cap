@@ -8,6 +8,8 @@ This report records automated desktop-browser verification. It is not a physical
 - 25 Vitest tests covering real data/transactions, local simulation, encrypted payload integrity and non-destructive backup restoration.
 - Chromium production UI suite: onboarding; permission rejection; text/contextual replies; reactions; snap viewing/expiry; friendship requests/blocking; themes/text scaling; backup export/import; local profile isolation/switching; mocked photo/video/audio capture; Memories; Story publication; encrypted private storage; restart persistence; offline reload and messaging.
 - WebKit production UI suite: onboarding, IndexedDB binary persistence, permission rejection, chats/replies/reactions, snap viewing, Stories, friendships, appearance, backups, accounts, restart and offline reload/messaging.
+- PWA lifecycle suite in Chromium and WebKit: interrupted-update recovery, a consistent installed version while updates wait, reload activation, old-cache cleanup, preserved profiles, offline subpath navigation and refresh.
+- Late microphone permission is safely released after leaving a conversation in Chromium. WebKit builds without MediaRecorder explicitly report unavailable recording and do not request microphone access.
 - Screenshots and container overflow checks at 320, 375 and 390 CSS pixel widths, plus 150% text size on the smallest viewport.
 
 ## Deployment configuration
