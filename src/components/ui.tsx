@@ -1,6 +1,7 @@
 import {
   useEffect,
   useRef,
+  useId,
   type ReactNode,
   type ButtonHTMLAttributes,
 } from "react";
@@ -90,6 +91,7 @@ export function Sheet({
   onClose: () => void;
   full?: boolean;
 }) {
+  const titleId = useId();
   const ref = useRef<HTMLDialogElement>(null);
   const start = useRef(0);
   useEffect(() => {
@@ -99,6 +101,7 @@ export function Sheet({
   return (
     <dialog
       ref={ref}
+      aria-labelledby={titleId}
       className={`sheet ${full ? "full-sheet" : ""}`}
       onCancel={(e) => {
         e.preventDefault();
@@ -119,7 +122,7 @@ export function Sheet({
           }}
         >
           <span className="sheet-handle" />
-          <h2>{title}</h2>
+          <h2 id={titleId}>{title}</h2>
           <IconButton label="Close" onClick={onClose}>
             <X />
           </IconButton>

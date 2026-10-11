@@ -88,14 +88,16 @@ npm ci
 npm run dev
 npm test
 npm run build
-npm install --no-save --package-lock=false playwright@1.56.1
 npx playwright install --with-deps chromium webkit
 npm run test:e2e
+npm run test:pwa
 ```
 
-The browser test starts its own production HTTP server, runs mobile workflows and stops the server to verify genuinely cached offline reloads. Screenshots and temporary backups are generated in ignored `test-results/`. `CHROMIUM_EXECUTABLE` optionally selects a preinstalled Chromium binary; `TEST_ENGINES=chromium` or `webkit` selects one engine. Camera/audio are mocked, so these tests do **not** constitute real-device hardware testing.
+The browser tests start their own production HTTP servers, runs mobile workflows and stops the server to verify genuinely cached offline reloads. Screenshots and temporary backups are generated in ignored `test-results/`. `CHROMIUM_EXECUTABLE` optionally selects a preinstalled Chromium binary; `TEST_ENGINES=chromium` or `webkit` selects one engine. Camera/audio are mocked, so these tests do **not** constitute real-device hardware testing.
 
-Unit coverage includes account isolation, deterministic delivery/replies, blocking, score/streak rules, snap retention, Story privacy/expiry, media persistence, quota rollback, encryption integrity and backup validation/restoration.
+The PWA lifecycle suite tests interrupted-update recovery, consistent app-shell versions while updates wait, user-approved activation, old-cache cleanup, preserved profiles and offline navigation under the repository subpath.
+
+Unit coverage includes account isolation, deterministic delivery/replies, blocking, score/streak rules, concurrent snap viewing, retention and reply cleanup, Story privacy/expiry, media persistence, quota rollback, encryption integrity and backup validation/restoration.
 
 A hidden local testing panel opens by tapping **Settings → Local edition version seven times**. It can regenerate demo conversations (with confirmation), trigger fictional activity/calls/snaps, process delivery/expiry and inspect record counts/feature support. It never prints private media or PINs.
 
@@ -103,7 +105,7 @@ A hidden local testing panel opens by tapping **Settings → Local edition versi
 
 The Vite base, manifest scope and service worker are all `/snap-cap/`. Tabs use fragment URLs so GitHub Pages does not need server-side route rewriting. The default launch destination is always Camera.
 
-`.github/workflows/deploy.yml` installs dependencies, runs unit tests, type-checks/builds, runs Chromium/WebKit production UI tests, uploads `dist/` and deploys with the official Pages actions. Repository **Settings → Pages → Source** must be **GitHub Actions**. Automatic enablement is attempted, but GitHub may require an administrator to enable Pages first because workflow tokens cannot always change repository administration settings.
+`.github/workflows/deploy.yml` installs dependencies, runs unit tests, type-checks/builds, runs Chromium/WebKit production UI tests, uploads `dist/` and deploys with the official Pages actions. Repository **Settings → Pages → Source** must be **GitHub Actions**. An administrator must enable Pages once; workflow tokens cannot create a Pages site in this repository. The build/test job uploads its artifact independently, so deployment configuration errors do not hide test results.
 
 Updates precache a new content-hashed shell, display a reload prompt and activate only when the user selects Reload. Activation removes old app-shell caches while preserving IndexedDB data. Keep the app open online to receive updates.
 

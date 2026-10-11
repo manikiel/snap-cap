@@ -239,6 +239,15 @@ export class SimulationEngine {
         if (!media || media.accountId !== accountId || media.private)
           throw new Error("This media is unavailable.");
       }
+      if (replyTo) {
+        const original = await d.messages.get(replyTo);
+        if (
+          !original ||
+          original.accountId !== accountId ||
+          original.userId !== userId
+        )
+          throw new Error("The original message is no longer available.");
+      }
       await d.messages.add(message);
       const a = await d.accounts.get(accountId);
       if (!a) throw new Error("Profile unavailable.");
@@ -305,7 +314,8 @@ export class SimulationEngine {
         title: "Sent snap",
       });
       await d.addRawPayload({ ...payload, id: copyId });
-      for (const user of users)
+      if (!users.length) throw new Error("Choose at least one recipient.");
+      for (const user of new Set(users))
         await this.send(accountId, user, "snap", "Snap", copyId);
     });
   }
@@ -455,6 +465,7 @@ export class SimulationEngine {
           if (
             story &&
             !story.expired &&
+            story.expiresAt > now &&
             story.visibility !== "private" &&
             (story.visibility === "friends" || story.group.includes(e.userId))
           ) {
@@ -477,10 +488,12 @@ export class SimulationEngine {
         .toArray())
         if (!s.expired && s.expiresAt <= now)
           await d.stories.update(s.id, { expired: true, items: [] });
-      for (const m of await d.messages
+      const removed = new Set<string>();
+      const messages = await d.messages
         .where("accountId")
         .equals(accountId)
-        .toArray()) {
+        .toArray();
+      for (const m of messages) {
         if (
           m.kind === "snap" &&
           !m.expired &&
@@ -496,7 +509,18 @@ export class SimulationEngine {
           m.state === "opened" &&
           now - m.createdAt >= 86400000
         )
-          await d.messages.delete(m.id);
+          removed.add(m.id);
+      }
+      if (removed.size) {
+        await d.messages.bulkDelete([...removed]);
+        for (const m of messages)
+          if (m.replyTo && removed.has(m.replyTo) && !removed.has(m.id))
+            await d.messages.update(m.id, { replyTo: undefined });
+        await d.events
+          .where("accountId")
+          .equals(accountId)
+          .filter((e) => !!e.messageId && removed.has(e.messageId))
+          .delete();
       }
       for (const f of await d.friends
         .where("accountId")
@@ -547,38 +571,29 @@ export class SimulationEngine {
       .modify({ read: true });
   }
   async openSnap(accountId: string, messageId: string) {
-    const m = await this.database.messages.get(messageId);
-    if (!m || m.accountId !== accountId || m.expired || !m.mediaId)
-      throw new Error("This snap has expired.");
-    await this.database.transaction(
-      "rw",
-      this.database.messages,
-      this.database.accounts,
-      this.database.friends,
-      async () => {
-        await this.database.messages.update(m.id, {
-          viewedAt: this.now(),
-          state: "opened",
-          unread: false,
-        });
-        if (m.sender === "friend" && !m.viewedAt) {
-          const a = await this.database.accounts.get(accountId);
-          if (a)
-            await this.database.accounts.update(accountId, {
-              score: a.score + 1,
-            });
-          const f = await this.database.friends
-            .where("[accountId+userId]")
-            .equals([accountId, m.userId])
-            .first();
-          if (f)
-            await this.database.friends.update(f.id, {
-              lastReceivedDay: day(this.now()),
-            });
-        }
-      },
-    );
-    return m.mediaId;
+    const d = this.database;
+    return d.transaction("rw", d.messages, d.accounts, d.friends, async () => {
+      // Read inside the write transaction so concurrent taps only score once.
+      const m = await d.messages.get(messageId);
+      if (!m || m.accountId !== accountId || m.expired || !m.mediaId)
+        throw new Error("This snap has expired.");
+      const now = this.now();
+      await d.messages.update(m.id, {
+        viewedAt: m.viewedAt ?? now,
+        state: "opened",
+        unread: false,
+      });
+      if (m.sender === "friend" && m.viewedAt === undefined) {
+        const a = await d.accounts.get(accountId);
+        if (a) await d.accounts.update(accountId, { score: a.score + 1 });
+        const f = await d.friends
+          .where("[accountId+userId]")
+          .equals([accountId, m.userId])
+          .first();
+        if (f) await d.friends.update(f.id, { lastReceivedDay: day(now) });
+      }
+      return m.mediaId;
+    });
   }
   async closeSnap(accountId: string, messageId: string) {
     const a = await this.database.accounts.get(accountId);

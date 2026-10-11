@@ -414,6 +414,34 @@ async function suite(name, browserType) {
       await overflow(page);
       await screenshot(page, `${name}-chat-${width}`);
     }
+    await page.getByRole("button", { name: "Chat", exact: true }).click();
+    await page
+      .locator(".chat-row-main")
+      .filter({ hasText: "Maya Chen" })
+      .click();
+    await page.evaluate(() => {
+      window.lateMicStops = 0;
+      Object.defineProperty(navigator.mediaDevices, "getUserMedia", {
+        configurable: true,
+        value: () =>
+          new Promise((resolve) => {
+            window.releaseLateMic = () =>
+              resolve({
+                getTracks: () => [{ stop: () => window.lateMicStops++ }],
+              });
+          }),
+      });
+    });
+    await page
+      .getByRole("button", { name: "Record voice message", exact: true })
+      .click();
+    await page.waitForFunction(() => !!window.releaseLateMic);
+    await page.getByRole("button", { name: "Back to chats" }).click();
+    await page.evaluate(() => window.releaseLateMic());
+    await page.waitForFunction(() => window.lateMicStops === 1);
+    console.log(
+      name + ": microphone granted after leaving chat is stopped safely",
+    );
     await page.evaluate(async () => {
       await navigator.serviceWorker.ready;
     });

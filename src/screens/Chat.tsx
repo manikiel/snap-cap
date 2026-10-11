@@ -226,6 +226,8 @@ export function Conversation({ id }: { id: string }) {
   const recorder = useRef<MediaRecorder | null>(null);
   const mic = useRef<MediaStream | null>(null);
   const cancelVoice = useRef(false);
+  const voiceActive = useRef(true);
+  const voicePending = useRef(false);
   const start = useRef(0);
   const voiceDuration = useRef(0);
   const [sending, setSending] = useState(false);
@@ -242,15 +244,16 @@ export function Conversation({ id }: { id: string }) {
     }, 200);
     return () => clearInterval(timer);
   }, [recording]);
-  useEffect(
-    () => () => {
+  useEffect(() => {
+    voiceActive.current = true;
+    return () => {
+      voiceActive.current = false;
       cancelVoice.current = true;
       if (recorder.current?.state === "recording") recorder.current.stop();
       mic.current?.getTracks().forEach((t) => t.stop());
       if (press.current) clearTimeout(press.current);
-    },
-    [],
-  );
+    };
+  }, []);
   if (!user)
     return (
       <Empty icon={<MessageSquarePlus />} title="Friend unavailable">
@@ -287,6 +290,7 @@ export function Conversation({ id }: { id: string }) {
     setSnap(null);
   }
   async function startVoice() {
+    if (voicePending.current || recorder.current?.state === "recording") return;
     if (
       !allowed ||
       !navigator.mediaDevices?.getUserMedia ||
@@ -295,15 +299,23 @@ export function Conversation({ id }: { id: string }) {
       toast("Voice recording is unavailable in this browser.");
       return;
     }
+    voicePending.current = true;
     await run(async () => {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      if (!voiceActive.current) {
+        stream.getTracks().forEach((t) => t.stop());
+        return;
+      }
       mic.current = stream;
       cancelVoice.current = false;
       const type = recorderType(true);
-      const r = new MediaRecorder(
-        stream,
-        type ? { mimeType: type } : undefined,
-      );
+      let r: MediaRecorder;
+      try {
+        r = new MediaRecorder(stream, type ? { mimeType: type } : undefined);
+      } catch (error) {
+        stream.getTracks().forEach((t) => t.stop());
+        throw error;
+      }
       const chunks: Blob[] = [];
       r.ondataavailable = (e) => {
         if (e.data.size) chunks.push(e.data);
@@ -311,7 +323,7 @@ export function Conversation({ id }: { id: string }) {
       r.onstop = async () => {
         stream.getTracks().forEach((t) => t.stop());
         setRecording(false);
-        if (cancelVoice.current) return;
+        if (cancelVoice.current || !voiceActive.current) return;
         const blob = new Blob(chunks, { type: r.mimeType });
         await run(async () => {
           const media = await engine.saveMedia(
@@ -336,9 +348,15 @@ export function Conversation({ id }: { id: string }) {
       recorder.current = r;
       start.current = Date.now();
       setElapsed(0);
-      r.start(250);
+      try {
+        r.start(250);
+      } catch (error) {
+        stream.getTracks().forEach((t) => t.stop());
+        throw error;
+      }
       setRecording(true);
     });
+    voicePending.current = false;
   }
   function finishVoice(cancel: boolean) {
     cancelVoice.current = cancel;

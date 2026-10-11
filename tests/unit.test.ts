@@ -130,6 +130,65 @@ describe("coherent local simulation", () => {
     expect((await db.messages.get(m!.id))?.expired).toBe(true);
     await expect(engine.openSnap(account.id, m!.id)).rejects.toThrow("expired");
   });
+  it("scores concurrent snap views once and does not extend retention by reopening", async () => {
+    await engine.updatePreferences(account.id, { retention: "24h" });
+    const m = await db.messages
+      .where("accountId")
+      .equals(account.id)
+      .filter((m) => m.kind === "snap")
+      .first();
+    await Promise.all([
+      engine.openSnap(account.id, m!.id),
+      engine.openSnap(account.id, m!.id),
+    ]);
+    const first = (await db.messages.get(m!.id))!.viewedAt;
+    expect((await db.accounts.get(account.id))!.score).toBe(1);
+    now += 3600000;
+    await engine.openSnap(account.id, m!.id);
+    expect((await db.messages.get(m!.id))!.viewedAt).toBe(first);
+    now += 23 * 3600000;
+    await engine.tick(account.id);
+    expect((await db.messages.get(m!.id))!.expired).toBe(true);
+  });
+  it("deduplicates snap recipients and rejects empty selections atomically", async () => {
+    const media = await photo();
+    await engine.sendSnap(account.id, ["maya", "maya"], media.id);
+    expect((await db.accounts.get(account.id))!.sentSnaps).toBe(1);
+    const count = await db.media.count();
+    await expect(engine.sendSnap(account.id, [], media.id)).rejects.toThrow(
+      "recipient",
+    );
+    expect(await db.media.count()).toBe(count);
+  });
+  it("cleans reply references on retention expiry and keeps backups restorable", async () => {
+    await engine.updatePreferences(account.id, { retention: "24h" });
+    const original = await engine.send(account.id, "maya", "text", "Original");
+    await db.messages.update(original.id, { state: "opened" });
+    now += 23 * 3600000;
+    const reply = await engine.send(
+      account.id,
+      "maya",
+      "text",
+      "Reply",
+      undefined,
+      original.id,
+    );
+    now += 3600001;
+    await engine.tick(account.id);
+    expect(await db.messages.get(original.id)).toBeUndefined();
+    expect((await db.messages.get(reply.id))!.replyTo).toBeUndefined();
+    const backup = await exportBackup(db);
+    expect(validateBackup(JSON.parse(await backup.text()))).toBeTruthy();
+  });
+  it("rejects replies to another profile or conversation", async () => {
+    const original = await engine.send(account.id, "maya", "text", "Original");
+    await expect(
+      engine.send(account.id, "leo", "text", "Reply", undefined, original.id),
+    ).rejects.toThrow("original");
+    await expect(
+      engine.send(account.id, "maya", "text", "Reply", undefined, "missing"),
+    ).rejects.toThrow("original");
+  });
   it("retains viewed snaps for 24 hours when configured", async () => {
     await engine.updatePreferences(account.id, { retention: "24h" });
     const m = await db.messages
